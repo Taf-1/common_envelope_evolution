@@ -70,6 +70,4 @@ All run parameters are set in an `.ini` file. See `example.ini` for a template.
 J. S. W. Claeys, O. R. Pols, R. G. Izzard, J. Vink and F. W. M. Verbunt A&A, 563 (2014) A83 DOI: https://doi.org/10.1051/0004-6361/201322714
 - Monica Zorotovic, MatthiasR Schreiber, Close detached white dwarf + brown dwarf binaries: further evidence for low values of the common envelope efficiency, Monthly Notices of the Royal Astronomical Society, Volume 513, Issue 3, July 2022, Pages 3587–3595, https://doi.org/10.1093/mnras/stac1137
 - Post-common-envelope binaries from SDSS - IX: Constraining the common-envelope efficiency
--M. Zorotovic, M. R. Schreiber, B. T. Gänsicke and A. Nebot Gómez-Morán
-A&A, 520 (2010) A86
-DOI: https://doi.org/10.1051/0004-6361/200913658
+-M. Zorotovic, M. R. Schreiber, B. T. Gänsicke and A. Nebot Gómez-Morán A&A, 520 (2010) A86 DOI: https://doi.org/10.1051/0004-6361/200913658

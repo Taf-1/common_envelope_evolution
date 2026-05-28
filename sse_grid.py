@@ -68,7 +68,7 @@ class sseGrid:
         out["rad_floor"] = tams_radius
         out["rad_ceil"] = out["rad_1"]
         self.logger.info(f"M1={M1}: {len(out)} valid giant phase entries with core mass, filtering for C/O core mass near observed WD mass")
-        out = out[out["M1c"].between(self.M_wd_obs * 0.9, self.M_wd_obs * 1.1) & out["kstar_1"].isin([4, 5, 6])]
+        out = out[out["kstar_1"].isin([5, 6])]
         return out if len(out) > 0 else None
 
     def compute_sse_grid(self) -> pd.DataFrame:
