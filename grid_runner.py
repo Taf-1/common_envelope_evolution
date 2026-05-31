@@ -3,6 +3,8 @@ import logging
 import pandas as pd
 from lambda_claeys2014 import Lambda
 from ce_energy_inversion import EnergyInversion
+import numpy as np
+from astropy.constants import G, M_sun, R_sun
 
 class CEGridRunner:
     def __init__(self, logger: logging.Logger, M1_grid: list, M_wd_obs: float,
@@ -13,6 +15,10 @@ class CEGridRunner:
         self.M2 = M2
         self.a_f = a_f
         self.t_max = t_max
+
+    @staticmethod
+    def separation_to_period(separation: float, m1: float, m2: float) -> float:
+        return 2 * np.pi * np.sqrt((separation* R_sun.value)**3 / (G.value * (m1 + m2) * M_sun.value))
 
     def run(self) -> pd.DataFrame:
         self.logger.info("Starting CE grid runner")
@@ -44,7 +50,11 @@ class CEGridRunner:
                     row["M1c"], self.M2, self.a_f, lam,
                     row["rad_floor"], row["rad_ceil"],
                 )
+                p_final = self.separation_to_period(self.a_f, row["M1c"], self.M2)
                 a_i, alpha, period = energy_inv.solve_for_alpha()
+                if period < p_final or period < p_final + 0.1 * p_final:
+                    self.logger.debug(f"Initial period: {period:.3e} s: rejected — initial period too short to produce binary system we observe today.")
+                    continue
                 results.append({
                     "M1_init": row["M1_init"],
                     "alpha": alpha,
@@ -58,8 +68,8 @@ class CEGridRunner:
                     "rad_floor_rsun": row["rad_floor"],
                     "rad_ceil_rsun": row["rad_ceil"],
                 })
-                self.logger.info(
-                    f"M1={row['M1_init']:.2f} α={alpha:.2f}: a_i={a_i:.3e} m  P_orb_init={period:.3e} s"
+                self.logger.debug(
+                    f"M1={row['M1_init']:.2f} alpha={alpha:.2f}: a_i={a_i:.3e} m  P_orb_init={period:.3e} s"
                 )
             except ValueError as e:
                 self.logger.debug(

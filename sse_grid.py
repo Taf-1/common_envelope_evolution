@@ -12,7 +12,7 @@ class sseGrid:
         self.M_wd_obs = M_wd_obs
 
     def _evolve_single(self, M1) -> pd.DataFrame | None:
-        self.logger.info(f"Evolving M1={M1:.2f} Msun as a single star (wide binary) to build SSE grid")
+        self.logger.debug(f"Evolving M1={M1:.2f} Msun as a single star (wide binary) to build SSE grid")
         binary = InitialBinaryTable.InitialBinaries(
             m1=float(M1), m2=self.M2, porb=1e8, ecc=0.0, tphysf=14000.0,
             kstar1=1, kstar2=0, metallicity=0.014,
@@ -39,46 +39,46 @@ class sseGrid:
             "grflag":1,"htpmb":1,"ST_cr":1,
         }
         sse_defaults = {"stellar_engine": "sse"}
-        self.logger.info(f"Starting evolution for M1={M1:.2f} Msun")    
+        self.logger.debug(f"Starting evolution for M1={M1:.2f} Msun")    
         _, bcm, _, _ = Evolve.evolve(
             initialbinarytable=binary, BSEDict=bse_defaults, SSEDict=sse_defaults
         )
-        self.logger.info(f"Finished evolution for M1={M1:.2f} Msun, processing giant phases")
+        self.logger.debug(f"Finished evolution for M1={M1:.2f} Msun, processing giant phases")
         ms_rows = bcm[bcm["kstar_1"] == 1]
         if len(ms_rows) == 0:
             self.logger.warning(f"M1={M1}: no main sequence rows in BCM, cannot determine TAMS radius")
             return None
         tams_radius = ms_rows["rad_1"].iloc[-1]
-        self.logger.info(f"M1={M1}: TAMS radius = {tams_radius:.4f} Rsun")
+        self.logger.debug(f"M1={M1}: TAMS radius = {tams_radius:.4f} Rsun")
         giants = bcm[bcm["kstar_1"].isin([2, 3, 4, 5, 6])].copy()
         if len(giants) == 0:
             self.logger.warning(f"M1={M1}: no giant phase reached")
             return None
-        self.logger.info(f"M1={M1}: {len(giants)} giant phase entries found, computing core masses")
+        self.logger.debug(f"M1={M1}: {len(giants)} giant phase entries found, computing core masses")
         giants["M1c"] = np.where(
             giants["kstar_1"].isin([2, 3]),
             giants["massc_he_layer_1"],
             giants["massc_co_layer_1"],
         )
-        self.logger.info(f"M1={M1}: core masses computed, filtering for valid core mass entries")
+        self.logger.debug(f"M1={M1}: core masses computed, filtering for valid core mass entries")
         cols = ["tphys", "mass_1", "rad_1", "M1c", "kstar_1", "lum_1", "sep"]
         out = giants[cols].copy()
         out = out[np.isfinite(out["M1c"]) & (out["M1c"] > 0)]
         out["M1_init"] = M1
         out["rad_floor"] = tams_radius
         out["rad_ceil"] = out["rad_1"]
-        self.logger.info(f"M1={M1}: {len(out)} valid giant phase entries with core mass, filtering for C/O core mass near observed WD mass")
+        self.logger.debug(f"M1={M1}: {len(out)} valid giant phase entries with core mass, filtering for C/O core mass near observed WD mass")
         out = out[out["kstar_1"].isin([5, 6])]
         return out if len(out) > 0 else None
 
     def compute_sse_grid(self) -> pd.DataFrame:
         frames = []
-        self.logger.info(f"Computing SSE grid for M1 values: {self.M1_grid}")
+        self.logger.debug(f"Computing SSE grid for M1 values: {self.M1_grid}")
         for m1 in self.M1_grid:
             result = self._evolve_single(M1=m1)
             if result is not None:
                 frames.append(result)
-        self.logger.info(f"Finished computing SSE grid, concatenating results")
+        self.logger.debug(f"Finished computing SSE grid, concatenating results")
         grid = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        self.logger.info(f"Grid ready: {len(frames)}/{len(self.M1_grid)} M1 values produced giant phases")
+        self.logger.debug(f"Grid ready: {len(frames)}/{len(self.M1_grid)} M1 values produced giant phases")
         return grid

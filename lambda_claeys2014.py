@@ -17,33 +17,35 @@ class Lambda:
         lambda_3 = np.minimum(-0.9, 0.58 + 0.75*np.log10(mass)) - 0.08*np.log10(lum)
         if kstar == 4:
             logger.debug("Star is a CHeB, using appropriate formula")
-            return 2 * 0.5
+            lam = 2 * 0.5
         elif kstar == 5:
             logger.debug("Star is an EAGB, using appropriate formula")
-            return 2 * np.minimum(0.8, np.minimum(1.25 - 0.15*np.log10(lum), lambda_3))
+            lam = 2 * np.minimum(0.8, np.maximum(1.25 - 0.15*np.log10(lum), lambda_3))
         else:
             logger.debug("Star is a TPAGB, using appropriate formula")
-            return 2 * np.minimum(np.maximum(-3.5 - 0.75*np.log10(mass) + np.log10(lum), lambda_3), 1.0)
+            lam = 2 * np.minimum(np.maximum(-3.5 - 0.75*np.log10(mass) + np.log10(lum), lambda_3), 1.0)
+        return max(1.0, min(2.0, lam))
 
     @staticmethod
     def compute_rgb_lambda(logger: logging.Logger, mass: float, menv: float, lum: float, rad: float, r_zams: float, kstar: int) -> float:
-        logging.debug("Computing RGB lambda using Claeys+2014 prescription")
+        logger.debug("Computing RGB lambda using Claeys+2014 prescription")
         lambda_2 = 0.42 * (r_zams / rad) ** 0.4
         lambda_3 = np.minimum(-0.9, 0.58 + 0.75*np.log10(mass)) - 0.08*np.log10(lum)
         if menv == 0:
             logger.debug("Envelope mass is zero, using lambda2")
-            return 2 * lambda_2
+            lam = 2 * lambda_2
         elif kstar == 4:
             logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
-            return 2 * (lambda_2 + (menv**0.5)*(0.5 - lambda_2))
+            lam = 2 * (lambda_2 + (menv**0.5)*(0.5 - lambda_2))
         elif kstar == 5:
             logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
-            lambda_1 = np.minimum(0.8, np.minimum(1.25 - 0.15*np.log10(lum), lambda_3))
-            return 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
+            lambda_1 = np.minimum(0.8, np.maximum(1.25 - 0.15*np.log10(lum), lambda_3))
+            lam = 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
         else:
             logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
             lambda_1 = np.minimum(np.maximum(-3.5 - 0.75*np.log10(mass) + np.log10(lum), lambda_3), 1.0)
-            return 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
+            lam = 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
+        return max(0.25, min(0.75, lam))
 
     def compute_lambda(self) -> float:
         self.logger.debug("Computing lambda using Claeys+2014 prescription")

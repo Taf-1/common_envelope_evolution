@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from cosmic.plotting import evolve_and_plot
 from cosmic.sample.initialbinarytable import InitialBinaryTable
 import pandas as pd
+import tqdm as tqdm
 
 def arg_parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Reconstructing the CE evolution of WD binaries")
@@ -73,15 +74,25 @@ def period_after_CE(t_cool, mwd, mbd, porb):
     pce_83 = porb_83 + factor * tcool_sec
     return pce_83**(3/8) / 86400.0
 
-def log_prior(theta, logger, sse_df, r_bd, porb, t_max) -> float:
+def log_prior(theta, logger, sse_df, r_bd, porb, t_max, sigma_mwd,
+              mwd_obs, mbd_obs, tcool_obs, sigma_mbd, sigma_tcool) -> float:
     mwd, m2, t_cool = theta
     if mwd <= 0 or m2 <= 0 or t_cool <= 0:
         return -np.inf
+    lp_gauss = -0.5 * (
+        ((mwd   - mwd_obs)   / sigma_mwd)**2 +
+        ((m2    - mbd_obs)   / sigma_mbd)**2 +
+        ((t_cool - tcool_obs) / sigma_tcool)**2
+    )
     pce = period_after_CE(t_cool, mwd, m2, porb)
     a_ce = period_to_separation(pce, mwd, m2)
     for m1_init in sse_df["M1_init"].unique():
         sub = sse_df[sse_df["M1_init"] == m1_init]
         row = sub.iloc[(sub["M1c"] - mwd).abs().argmin()]
+        if abs(row["M1c"] - mwd) > 3 * sigma_mwd:
+            continue
+        if not (100 <= row["rad_1"] <= 280):
+            continue
         lam_calc = Lambda(
             logger, row["kstar_1"], row["lum_1"],
             row["mass_1"], row["rad_1"],
@@ -96,28 +107,31 @@ def log_prior(theta, logger, sse_df, r_bd, porb, t_max) -> float:
                 row["rad_floor"], row["rad_ceil"],
             )
             _, alpha, _ = energy_inv.solve_for_alpha()
-            if not (0.1 <= alpha <= 1.0): continue
+            if not (0.09 <= alpha <= 1.0): continue
             if row["tphys"] + t_cool > t_max: continue
-            return 0.0
+            return lp_gauss
         except (ValueError, Exception):
             continue
     return -np.inf
 
 
-def log_likelihood(theta, mwd_obs, sigma_mwd, mbd_obs, sigma_mbd, tcool_obs, sigma_tcool) -> float:
-    mwd, m_bd, t_cool = theta
+def log_likelihood(theta, p_obs, a_obs, sigma_a_obs, r_wd_obs, sigma_rwd):
+    mwd, m_bd, _ = theta
+    a_kepler = period_to_separation(p_obs, mwd, m_bd)
+    Mch = 1.44
+    r_wd_pred = 0.0114 * np.sqrt((Mch/mwd)**(2/3) - (mwd/Mch)**(2/3))
     return -0.5 * (
-        ((mwd - mwd_obs) / sigma_mwd) ** 2 +
-        ((m_bd - mbd_obs) / sigma_mbd) ** 2 +
-        ((t_cool - tcool_obs) / sigma_tcool) ** 2
+        ((a_kepler - a_obs) / sigma_a_obs) ** 2 +
+        ((r_wd_pred - r_wd_obs) / sigma_rwd) ** 2
     )
 
-def log_prob(theta, logger, sse_df, r_bd, porb, t_max,
-             mwd_obs, sigma_mwd, mbd_obs, sigma_mbd, tcool_obs, sigma_tcool) -> float:
-    lp = log_prior(theta, logger, sse_df, r_bd, porb, t_max)
+def log_prob(theta, logger, sse_df, r_bd, porb, t_max, mwd_obs, sigma_mwd, mbd_obs,
+             sigma_mbd, tcool_obs, sigma_tcool, p_obs, a_obs, sigma_a_obs, r_wd_obs, sigma_rwd) -> float:
+    lp = log_prior(theta, logger, sse_df, r_bd, porb, t_max, sigma_mwd,
+                   mwd_obs, mbd_obs, tcool_obs, sigma_mbd, sigma_tcool)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood(theta, mwd_obs, sigma_mwd, mbd_obs, sigma_mbd, tcool_obs, sigma_tcool)
+    return lp + log_likelihood(theta, p_obs, a_obs, sigma_a_obs, r_wd_obs, sigma_rwd)
 
 def plot_walkers(chain, labels, path):
     ndim = chain.shape[2]
@@ -142,14 +156,17 @@ def plot_corner(flat_chain, labels, path):
     fig.savefig(path, dpi=600)
     plt.close(fig)
 
-def derive_posterior_quantities(flat_chain, sse_df, r_bd, p_obs, t_max_age, logger, thin=10):
+def derive_posterior_quantities(flat_chain, sse_df, r_bd, p_ce_fixed, t_max_age, logger, sigma_mwd, thin=10):
     records = []
-    for mwd, m_bd, t_cool in flat_chain[::thin]:
-        pce = period_after_CE(t_cool, mwd, m_bd, p_obs)
-        a_ce = period_to_separation(pce, mwd, m_bd)
+    for mwd, m_bd, t_cool in tqdm.tqdm(flat_chain[::thin], desc="Deriving posterior quantities", total=len(flat_chain[::thin])):
+        a_ce = period_to_separation(p_ce_fixed, mwd, m_bd)
         for m1_init in sse_df["M1_init"].unique():
             sub = sse_df[sse_df["M1_init"] == m1_init]
             row = sub.iloc[(sub["M1c"] - mwd).abs().argmin()]
+            if abs(row["M1c"] - mwd) > 3 * sigma_mwd:
+                continue
+            if not (100 <= row["rad_1"] <= 280):
+                continue
             lam_calc = Lambda(
                 logger, row["kstar_1"], row["lum_1"],
                 row["mass_1"], row["rad_1"],
@@ -168,10 +185,12 @@ def derive_posterior_quantities(flat_chain, sse_df, r_bd, p_obs, t_max_age, logg
                     continue
                 if row["tphys"] + t_cool > t_max_age:
                     continue
-
+                if period / 86400.0 < 1.0:
+                    continue
+                
                 records.append({
                     "mwd": mwd, "m_bd": m_bd, "t_cool": t_cool,
-                    "p_ce_days": pce,
+                    "p_ce_days": p_ce_fixed,
                     "p_init_days": period / 86400.0,
                     "M1_init": m1_init,
                     "rad1_ce_rsun": row["rad_1"],
@@ -208,7 +227,7 @@ def plot_best_fit_evolution(flat_chain, sse_df, r_bd, p_obs, t_max_plot, t_max_a
                 row["rad_floor"], row["rad_ceil"],
             )
             _, alpha, period = energy_inv.solve_for_alpha()
-            if not (0.1 <= alpha <= 1.0):
+            if not (0.09 <= alpha <= 1.0):
                 continue
             if row["tphys"] + tcool_med > t_max_age:
                 continue
@@ -247,19 +266,21 @@ def main() -> None:
     logger.info("Starting CE reconstruction with configuration:")
     for key, val in config.items():
         logger.info(f"  {key} = {val}")
-    m1_grid = np.arange(0.08, 8.0, 0.005)
+    m1_grid = np.arange(0.08, 2.25, 0.01)
     logger.info(f"Parameter grid for M1: {m1_grid}")
-    p_obs, m_wd, sigma_mwd, m_bd, sigma_mbd, t_cool, sigma_tcool, r_bd = (
+    p_obs, m_wd, sigma_mwd, m_bd, sigma_mbd, t_cool, sigma_tcool, r_bd, a_obs, sigma_a_obs, r_wd_obs, sigma_rwd = (
         float(config["p_obs"]), float(config["m_wd"]),
         float(config["sigma_mwd"]), float(config["m_bd"]),
         float(config["sigma_mbd"]), float(config["t_cool"]), 
         float(config["sigma_tcool"]), float(config["r_bd"]),
+        float(config["a_obs"]), float(config["sigma_a_obs"]),
+        float(config["r_wd"]), float(config["sigma_rwd"]),
     )
     t_max_plot = float(config.get("t_max_plot", 14000.0))
     t_max_age  = float(config.get("t_max_age",  10000.0))
     p_ce = period_after_CE(t_cool, m_wd, m_bd, p_obs)
     a_f = period_to_separation(p_ce, m_wd, m_bd)
-    logger.info(f"Observational constraints: P_obs={p_obs} days, M_wd={m_wd} Msun, M_bd={m_bd} Msun, a_f={a_f:.4f} Rsun")
+    logger.info(f"Observational constraints: P_obs={p_obs} days, M_wd={m_wd} Msun, M_bd={m_bd} Msun, a_f={a_f:.4f} Rsun, pce={p_ce:.4f} days")
     ce_runner = CEGridRunner(logger, m1_grid, m_wd, m_bd, a_f, t_max_age)
     results_df = ce_runner.run()
     logger.info(f"CE grid runner completed with {len(results_df)} valid solutions")
@@ -273,7 +294,7 @@ def main() -> None:
     sampler = emcee.EnsembleSampler(
         nwalkers, ndim, log_prob,
         args=(logger, sse_df, r_bd, p_obs, t_max_age,
-            m_wd, sigma_mwd, m_bd, sigma_mbd, t_cool, sigma_tcool),
+            m_wd, sigma_mwd, m_bd, sigma_mbd, t_cool, sigma_tcool, p_obs, a_obs, sigma_a_obs, r_wd_obs, sigma_rwd),
     )
     initial_pos = np.column_stack([
         np.random.normal(m_wd, sigma_mwd * 0.5, nwalkers),
@@ -300,7 +321,7 @@ def main() -> None:
         f"M_bd range: [{flat_chain[:, 1].min():.4f}, {flat_chain[:, 1].max():.4f}] Msun  "
         f"t_cool range: [{flat_chain[:, 2].min():.1f}, {flat_chain[:, 2].max():.1f}] Myr"
     )
-    derived = derive_posterior_quantities(flat_chain, sse_df, r_bd, p_obs, t_max_age, logger)
+    derived = derive_posterior_quantities(flat_chain, sse_df, r_bd, p_ce, t_max_age, logger, sigma_mwd)
     derived.to_csv(config["derived_csv"], index=False)
     for col in ["p_ce_days", "p_init_days", "M1_init", "rad1_ce_rsun", "alpha", "tphys_myr", "total_age_myr"]:
         logger.info(f"{col}: [{derived[col].min():.4g}, {derived[col].max():.4g}]")

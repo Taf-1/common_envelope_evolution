@@ -34,12 +34,14 @@ class EnergyInversion:
         q = self.mass_1 / self.m2
         f_rl = self.eggleton_roche_lobe_radius(q)
         a_i = self.rad_1 * R_sun.value / f_rl  # metres
-        E_orb_i = G.value * self.mass_1 * M_sun.value * self.m2 * M_sun.value / (2 * a_i)
+        E_orb_i = G.value * self.m1c * M_sun.value * self.m2 * M_sun.value / (2 * a_i)
         E_orb_f = G.value * self.m1c * M_sun.value * self.m2 * M_sun.value / (2 * self.a_f * R_sun.value)
         delta_E_orb = E_orb_f - E_orb_i
         if delta_E_orb <= 0:
             raise ValueError(f"delta E_orb={delta_E_orb:.3e} J = 0; CE energy balance unphysical")
         alpha = E_bind / delta_E_orb
+        if not 0.09 < alpha < 1.0:
+            raise ValueError(f"alpha={alpha:.3f} outside of reasonable range (0.1-1), CE energy balance unphysical")
         period = self.separation_to_period(a_i, self.mass_1, self.m2)
-        self.logger.debug(f"a_i={a_i/R_sun.value:.2f} Rsun  α={alpha:.3f}  P_init={period/86400:.4f} d")
+        self.logger.debug(f"a_i={a_i/R_sun.value:.2f} Rsun  alpha={alpha:.3f}  P_init={period/86400:.4f} d")
         return a_i / R_sun.value, alpha, period
