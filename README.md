@@ -43,16 +43,6 @@ All run parameters are set in an `.ini` file. See `example.ini` for a template.
 | | `n_steps` | Production steps (default 2000) |
 | | `t_max_plot` | Max time for evolution plot in Myr (default 14000) |
 
-## Output
-
-| File | Description |
-|------|-------------|
-| `results/grid_results.csv` | All (M₁, α) grid solutions that pass physical bounds |
-| `results/chain.csv` | Flattened MCMC chain: columns `M1`, `alpha` |
-| `results/walkers.png` | Walker trace for each parameter |
-| `results/corner.png` | Corner plot of the posterior |
-| `results/best_fit_evolution.png` | COSMIC evolution for the median posterior solution |
-
 ## Module overview
 
 | File | Description |
@@ -62,6 +52,7 @@ All run parameters are set in an `.ini` file. See `example.ini` for a template.
 | `sse_grid.py` | Builds the SSE grid of giant-phase snapshots via COSMIC |
 | `lambda_claeys2014.py` | λ prescription from Claeys et al. (2014) |
 | `ce_energy_inversion.py` | α–λ energy-balance inversion for the pre-CE separation |
+| `utils.py` | Shared helper utilities |
 | `logger.py` | Rotating file + console logger |
 | `example.ini` | Example configuration file |
 
@@ -70,4 +61,4 @@ All run parameters are set in an `.ini` file. See `example.ini` for a template.
 J. S. W. Claeys, O. R. Pols, R. G. Izzard, J. Vink and F. W. M. Verbunt A&A, 563 (2014) A83 DOI: https://doi.org/10.1051/0004-6361/201322714
 - Monica Zorotovic, MatthiasR Schreiber, Close detached white dwarf + brown dwarf binaries: further evidence for low values of the common envelope efficiency, Monthly Notices of the Royal Astronomical Society, Volume 513, Issue 3, July 2022, Pages 3587–3595, https://doi.org/10.1093/mnras/stac1137
 - Post-common-envelope binaries from SDSS - IX: Constraining the common-envelope efficiency
--M. Zorotovic, M. R. Schreiber, B. T. Gänsicke and A. Nebot Gómez-Morán A&A, 520 (2010) A86 DOI: https://doi.org/10.1051/0004-6361/200913658
+M. Zorotovic, M. R. Schreiber, B. T. Gänsicke and A. Nebot Gómez-Morán A&A, 520 (2010) A86 DOI: https://doi.org/10.1051/0004-6361/200913658
