@@ -3,13 +3,25 @@ from cosmic.evolve import Evolve
 import logging
 import numpy as np
 import pandas as pd
+from utils import bse_defaults, sse_defaults
+
+# COSMIC kstar legend (Hurley+2000 / COSMIC docs):
+#   0  = BD/planet     1  = MS (M≥0.7)   2  = HG
+#   3  = GB (FGB/RGB)  4  = CHeB         5  = EAGB
+#   6  = TPAGB         10 = He WD        11 = CO WD
+# FGB progenitors (kstar 3) → He-core WDs;  AGB (5,6) → CO/ONe WDs.
+# Default includes both so the energy balance determines validity per system.
+_DEFAULT_KSTAR_GIANTS = (3, 5, 6)
+
 
 class sseGrid:
-    def __init__(self, logger: logging.Logger, M1_grid: list, M_wd_obs: float, M2: float):
+    def __init__(self, logger: logging.Logger, M1_grid: list, M_wd_obs: float,
+                 M2: float, kstar_giants: tuple = _DEFAULT_KSTAR_GIANTS):
         self.M1_grid = M1_grid
         self.logger = logger
         self.M2 = M2
         self.M_wd_obs = M_wd_obs
+        self.kstar_giants = tuple(kstar_giants)
 
     def _evolve_single(self, M1) -> pd.DataFrame | None:
         self.logger.debug(f"Evolving M1={M1:.2f} Msun as a single star (wide binary) to build SSE grid")
@@ -18,57 +30,38 @@ class sseGrid:
             kstar1=1, kstar2=0, metallicity=0.014,
         )
         binary["dtp"] = 1.0
-        bse_defaults = {
-            "neta":0.5,"bwind":0.0,"hewind":0.5,"windflag":3,"LBV_flag":1,
-            "alpha1":[1.0,1.0],"lambdaf":0.0,"ceflag":1,"cekickflag":2,
-            "cemergeflag":1,"cehestarflag":0,"qcflag":5,"qcrit_array":[0.0]*16,
-            "beta":-1.0,"xi":0.5,"acc2":1.5,"eddfac":10,"eddlimflag":0,
-            "epsnov":0.001,"gamma":-2.0,"don_lim":-1,"acc_lim":[-1,-1],
-            "smt_periastron_check":0,"fprimc_array":[2.0/21.0]*16,"tflag":1,"ST_tide":1,
-            "pts1":0.001,"pts2":0.01,"pts3":0.02,"zsun":0.014,
-            "wdflag":1,"ifflag":1,"wd_mass_lim":1,"kickflag":5,"sigma":265.0,
-            "bhflag":1,"bhsigmafrac":1.0,"sigmadiv":-20.0,"ecsn":2.25,"ecsn_mlow":1.6,
-            "aic":1,"ussn":1,"polar_kick_angle":90.0,
-            "natal_kick_array":[[-100.,-100.,-100.,-100.,0.],[-100.,-100.,-100.,-100.,0.]],
-            "mm_mu_ns":400.0,"mm_mu_bh":200.0,"remnantflag":4,"fryer_mass_limit":0,
-            "mxns":3.0,"fryer_fmix":1.0,"fryer_mcrit_nsbh":5.75,"rembar_massloss":0.5,
-            "bhms_coll_flag":0,"bhms_accretion_factor":1.0,"pisn":-2,
-            "ppi_co_shift":0.0,"ppi_extra_ml":0.0,"rtmsflag":0,"rejuv_fac":1.0,
-            "rejuvflag":0,"maltsev_mode":0,"maltsev_fallback":0.5,"maltsev_pf_prob":0.1,
-            "bconst":3000,"ck":1000,"bdecayfac":1,"bhspinflag":0,"bhspinmag":0.0,
-            "grflag":1,"htpmb":1,"ST_cr":1,
-        }
-        sse_defaults = {"stellar_engine": "sse"}
-        self.logger.debug(f"Starting evolution for M1={M1:.2f} Msun")    
+        self.logger.debug(f"Starting evolution for M1={M1:.2f} Msun")
         _, bcm, _, _ = Evolve.evolve(
-            initialbinarytable=binary, BSEDict=bse_defaults, SSEDict=sse_defaults
+            initialbinarytable=binary, BSEDict=bse_defaults(), SSEDict=sse_defaults()
         )
         self.logger.debug(f"Finished evolution for M1={M1:.2f} Msun, processing giant phases")
+
         ms_rows = bcm[bcm["kstar_1"] == 1]
         if len(ms_rows) == 0:
             self.logger.warning(f"M1={M1}: no main sequence rows in BCM, cannot determine TAMS radius")
             return None
         tams_radius = ms_rows["rad_1"].iloc[-1]
-        self.logger.debug(f"M1={M1}: TAMS radius = {tams_radius:.4f} Rsun")
+
         giants = bcm[bcm["kstar_1"].isin([2, 3, 4, 5, 6])].copy()
         if len(giants) == 0:
             self.logger.warning(f"M1={M1}: no giant phase reached")
             return None
-        self.logger.debug(f"M1={M1}: {len(giants)} giant phase entries found, computing core masses")
+
+        # He-core mass for HG/FGB (kstar 2,3); CO-core mass for CHeB/AGB (kstar 4,5,6)
         giants["M1c"] = np.where(
             giants["kstar_1"].isin([2, 3]),
             giants["massc_he_layer_1"],
             giants["massc_co_layer_1"],
         )
-        self.logger.debug(f"M1={M1}: core masses computed, filtering for valid core mass entries")
+
         cols = ["tphys", "mass_1", "rad_1", "M1c", "kstar_1", "lum_1", "sep"]
         out = giants[cols].copy()
         out = out[np.isfinite(out["M1c"]) & (out["M1c"] > 0)]
         out["M1_init"] = M1
         out["rad_floor"] = tams_radius
         out["rad_ceil"] = out["rad_1"]
-        self.logger.debug(f"M1={M1}: {len(out)} valid giant phase entries with core mass, filtering for C/O core mass near observed WD mass")
-        out = out[out["kstar_1"].isin([5, 6])]
+
+        out = out[out["kstar_1"].isin(self.kstar_giants)]
         return out if len(out) > 0 else None
 
     def compute_sse_grid(self) -> pd.DataFrame:
@@ -78,7 +71,6 @@ class sseGrid:
             result = self._evolve_single(M1=m1)
             if result is not None:
                 frames.append(result)
-        self.logger.debug(f"Finished computing SSE grid, concatenating results")
         grid = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         self.logger.debug(f"Grid ready: {len(frames)}/{len(self.M1_grid)} M1 values produced giant phases")
         return grid

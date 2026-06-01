@@ -37,15 +37,17 @@ class Lambda:
         elif kstar == 4:
             logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
             lam = 2 * (lambda_2 + (menv**0.5)*(0.5 - lambda_2))
-        elif kstar == 5:
-            logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
+        elif kstar in (3, 5):
+            # FGB (kstar=3) and EAGB (kstar=5): use the same extended-giant formula.
+            # The original else-branch (TPAGB formula) gives lambda<0 for low-mass FGB stars,
+            # making the floor dominate. FGB and EAGB share similar envelope structure.
             lambda_1 = np.minimum(0.8, np.maximum(1.25 - 0.15*np.log10(lum), lambda_3))
             lam = 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
         else:
-            logger.debug("Envelope mass is non-zero but <= 1, using minimum of lambda2 and envelope mass")
+            # TPAGB (kstar=6) and other types
             lambda_1 = np.minimum(np.maximum(-3.5 - 0.75*np.log10(mass) + np.log10(lum), lambda_3), 1.0)
             lam = 2 * (lambda_2 + (menv**0.5)*(lambda_1 - lambda_2))
-        return max(0.25, min(0.75, lam))
+        return max(0.25, min(1.0, lam))
 
     def compute_lambda(self) -> float:
         self.logger.debug("Computing lambda using Claeys+2014 prescription")

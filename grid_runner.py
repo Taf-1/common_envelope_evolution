@@ -3,26 +3,27 @@ import logging
 import pandas as pd
 from lambda_claeys2014 import Lambda
 from ce_energy_inversion import EnergyInversion
-import numpy as np
-from astropy.constants import G, M_sun, R_sun
+from utils import separation_to_period
+
 
 class CEGridRunner:
     def __init__(self, logger: logging.Logger, M1_grid: list, M_wd_obs: float,
-                 M2: float, a_f: float, t_max: float = 14000):
+                 M2: float, a_f: float, t_max: float = 10000,
+                 kstar_giants: tuple = (3, 5, 6),
+                 alpha_min: float = 0.01, alpha_max: float = 1.0):
         self.logger = logger
         self.M1_grid = M1_grid
         self.M_wd_obs = M_wd_obs
         self.M2 = M2
         self.a_f = a_f
         self.t_max = t_max
-
-    @staticmethod
-    def separation_to_period(separation: float, m1: float, m2: float) -> float:
-        return 2 * np.pi * np.sqrt((separation* R_sun.value)**3 / (G.value * (m1 + m2) * M_sun.value))
+        self.kstar_giants = kstar_giants
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
 
     def run(self) -> pd.DataFrame:
         self.logger.info("Starting CE grid runner")
-        sse = sseGrid(self.logger, self.M1_grid, self.M_wd_obs, self.M2)
+        sse = sseGrid(self.logger, self.M1_grid, self.M_wd_obs, self.M2, self.kstar_giants)
         self.sse_df = sse.compute_sse_grid()
         results = []
         for _, row in self.sse_df.iterrows():
@@ -42,18 +43,23 @@ class CEGridRunner:
             lam = lam_calc.compute_lambda()
             try:
                 if row["tphys"] > self.t_max:
-                    self.logger.debug(f"M1={row['M1_init']:.2f} t={row['tphys']:.3e} yr: rejected — tphys exceeds t_max")
+                    self.logger.debug(
+                        f"M1={row['M1_init']:.2f} t={row['tphys']:.3e} yr: rejected — tphys exceeds t_max"
+                    )
                     continue
                 energy_inv = EnergyInversion(
                     self.logger,
                     row["mass_1"], row["mass_1"] - row["M1c"], row["rad_1"],
                     row["M1c"], self.M2, self.a_f, lam,
                     row["rad_floor"], row["rad_ceil"],
+                    self.alpha_min, self.alpha_max,
                 )
-                p_final = self.separation_to_period(self.a_f, row["M1c"], self.M2)
+                p_final = separation_to_period(self.a_f, row["M1c"], self.M2)
                 a_i, alpha, period = energy_inv.solve_for_alpha()
                 if period < p_final or period < p_final + 0.1 * p_final:
-                    self.logger.debug(f"Initial period: {period:.3e} s: rejected — initial period too short to produce binary system we observe today.")
+                    self.logger.debug(
+                        f"Initial period: {period:.3e} s: rejected — initial period too short"
+                    )
                     continue
                 results.append({
                     "M1_init": row["M1_init"],

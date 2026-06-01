@@ -5,7 +5,8 @@ import numpy as np
 class EnergyInversion:
     def __init__(self, logger: logging.Logger, mass_1: float, menv_1: float,
                  rad_1: float, m1c: float, m2: float, a_f: float, lam: float,
-                 rad_floor: float, rad_ceil: float):
+                 rad_floor: float, rad_ceil: float,
+                 alpha_min: float = 0.01, alpha_max: float = 1.0):
         self.logger = logger
         self.mass_1 = mass_1
         self.menv_1 = menv_1
@@ -16,6 +17,8 @@ class EnergyInversion:
         self.lam = lam
         self.rad_floor = rad_floor
         self.rad_ceil = rad_ceil
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
 
     @staticmethod
     def separation_to_period(separation: float, m1: float, m2: float) -> float:
@@ -40,8 +43,8 @@ class EnergyInversion:
         if delta_E_orb <= 0:
             raise ValueError(f"delta E_orb={delta_E_orb:.3e} J = 0; CE energy balance unphysical")
         alpha = E_bind / delta_E_orb
-        if not 0.09 < alpha < 1.0:
-            raise ValueError(f"alpha={alpha:.3f} outside of reasonable range (0.1-1), CE energy balance unphysical")
+        if not self.alpha_min <= alpha <= self.alpha_max:
+            raise ValueError(f"alpha={alpha:.3f} outside config range [{self.alpha_min}, {self.alpha_max}]")
         period = self.separation_to_period(a_i, self.mass_1, self.m2)
         self.logger.debug(f"a_i={a_i/R_sun.value:.2f} Rsun  alpha={alpha:.3f}  P_init={period/86400:.4f} d")
         return a_i / R_sun.value, alpha, period
