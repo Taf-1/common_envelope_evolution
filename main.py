@@ -10,7 +10,9 @@ from ce_energy_inversion import EnergyInversion
 import corner
 import matplotlib.pyplot as plt
 from cosmic.plotting import evolve_and_plot
+from cosmic.evolve import Evolve
 from cosmic.sample.initialbinarytable import InitialBinaryTable
+from cosmic.utils import convert_kstar_evol_type
 import pandas as pd
 import tqdm as tqdm
 from utils import bse_defaults, sse_defaults, period_to_separation
@@ -54,10 +56,10 @@ def _iter_sse_matches(mwd, m_bd, a_ce_rsun, t_cool, sse_df, sigma_mwd,
     """
     Generator yielding (row, alpha, period_s, m1_init) for every SSE grid entry
     that satisfies:
-      - WD core mass within 3σ of mwd
+      - WD core mass within 3 sigma of mwd
       - progenitor radius at CE onset in [r1_min, r1_max]
       - total system age in [t_min_age, t_max_age]
-      - α_CE in [alpha_min, alpha_max] (enforced by EnergyInversion)
+      - sigma_CE in [alpha_min, alpha_max] (enforced by EnergyInversion)
     """
     for m1_init in sse_df["M1_init"].unique():
         sub = sse_df[sse_df["M1_init"] == m1_init]
@@ -216,6 +218,21 @@ def plot_best_fit_evolution(flat_chain, sse_df, p_obs, t_max_plot, t_min_age, t_
         tphysf=14000.0, kstar1=1, kstar2=0, metallicity=0.014,
     )
     single_binary["dtp"] = 1.0
+
+    bpp, _, _, _ = Evolve.evolve(
+        initialbinarytable=single_binary, BSEDict=bse_defaults(), SSEDict=sse_defaults()
+    )
+    evol_times = convert_kstar_evol_type(
+        bpp[["tphys", "kstar_1", "kstar_2", "mass_1", "mass_2", "sep", "evol_type"]].copy()
+    )
+    logger.info("Best-fit evolution stages:")
+    logger.info(f"  {'t (Myr)':>10}  {'evol_type':<30}  {'kstar_1':<38}  {'kstar_2':<30}  {'M1':>6}  {'M2':>6}  {'sep (Rsun)':>10}")
+    for _, ev in evol_times.iterrows():
+        logger.info(
+            f"  {ev['tphys']:>10.2f}  {ev['evol_type']:<30}  {ev['kstar_1']:<38}  {ev['kstar_2']:<30}  "
+            f"{ev['mass_1']:>6.3f}  {ev['mass_2']:>6.4f}  {ev['sep']:>10.3f}"
+        )
+
     figs = evolve_and_plot(
         single_binary, t_min=None, t_max=t_max_plot,
         BSEDict=bse_defaults(), SSEDict=sse_defaults(), sys_obs={},
@@ -312,11 +329,15 @@ def main() -> None:
         alpha_min, alpha_max,
     )
 
-    logger.info(
-        f"M_wd  [{flat_chain[:, 0].min():.3f}, {flat_chain[:, 0].max():.3f}] Msun  "
-        f"M_bd  [{flat_chain[:, 1].min():.4f}, {flat_chain[:, 1].max():.4f}] Msun  "
-        f"t_cool [{flat_chain[:, 2].min():.1f}, {flat_chain[:, 2].max():.1f}] Myr"
-    )
+    logger.info("MCMC posterior summary (median  +upper / -lower  at 1 sigma):")
+    chain_params = [
+        (0, "M_wd",   "Msun", ".4f"),
+        (1, "M_bd",   "Msun", ".5f"),
+        (2, "t_cool", "Myr",  ".2f"),
+    ]
+    for idx, name, unit, fmt in chain_params:
+        q16, q50, q84 = np.percentile(flat_chain[:, idx], [16, 50, 84])
+        logger.info(f"  {name:8s}: {q50:{fmt}}  +{q84-q50:{fmt}} / -{q50-q16:{fmt}}  {unit}")
 
     derived = derive_posterior_quantities(
         flat_chain, sse_df, p_obs, t_min_age, t_max_age,
@@ -324,9 +345,23 @@ def main() -> None:
         alpha_min=alpha_min, alpha_max=alpha_max,
     )
     derived.to_csv(config["derived_csv"], index=False)
-    for col in ["p_ce_days", "p_init_days", "M1_init", "rad1_ce_rsun", "alpha", "tphys_myr", "total_age_myr"]:
-        if col in derived.columns and len(derived):
-            logger.info(f"{col}: [{derived[col].min():.4g}, {derived[col].max():.4g}]")
+
+    if len(derived):
+        logger.info("Derived posterior summary (median  +upper / -lower  at 1 sigma):")
+        derived_params = [
+            ("p_ce_days",     "d",    ".6f"),
+            ("p_init_days",   "d",    ".6f"),
+            ("M1_init",       "Msun", ".6f"),
+            ("rad1_ce_rsun",  "Rsun", ".6f"),
+            ("alpha",         "",     ".6f"),
+            ("tphys_myr",     "Myr",  ".6f"),
+            ("total_age_myr", "Myr",  ".6f"),
+        ]
+        for col, unit, fmt in derived_params:
+            if col in derived.columns:
+                q16, q50, q84 = np.percentile(derived[col], [16, 50, 84])
+                logger.info(f"  {col:20s}: {q50:{fmt}}  +{q84-q50:{fmt}} / -{q50-q16:{fmt}}  {unit}")
+
     logger.info("CE reconstruction completed successfully")
 
 
